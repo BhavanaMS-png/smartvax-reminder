@@ -1,0 +1,33 @@
+name: Send Vaccine Reminders (daily)
+
+on:
+  schedule:
+    - cron: '0 2 * * *'  # runs daily at 02:00 UTC (~07:30 IST)
+  workflow_dispatch:
+
+jobs:
+  send-reminders:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Write service account
+        env:
+          SA_JSON: ${{ secrets.FIREBASE_SA_JSON }}
+        run: |
+          echo "$SA_JSON" > serviceAccountKey.json
+
+      - name: Run reminder script
+        env:
+          DATABASE_URL: ${{ secrets.FIREBASE_DB_URL }}
+          SA_PATH: serviceAccountKey.json
+        run: |
+          node sendReminders.js
