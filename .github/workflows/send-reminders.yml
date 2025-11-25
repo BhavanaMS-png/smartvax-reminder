@@ -2,32 +2,85 @@ name: Send Vaccine Reminders (daily)
 
 on:
   schedule:
-    - cron: '0 2 * * *'  # runs daily at 02:00 UTC (~07:30 IST)
+    - cron: "0 2 * * *"
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   send-reminders:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Node
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: "18"
+          cache: "npm"
 
-      - name: Install deps
-        run: npm ci
+      - name: Show environment & repo files
+        run: |
+          echo "Runner: $(uname -a)"
+          pwd
+          ls -la
 
-      - name: Write service account
+      - name: Check for sendReminders.js
+        run: |
+          if [ ! -f sendReminders.js ]; then
+            echo "ERROR: sendReminders.js not found at repo root."
+            echo "Files at root:"; ls -la
+            exit 1
+          fi
+          echo "sendReminders.js exists."
+
+      - name: Install dependencies
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci --prefer-offline --no-audit
+          else
+            echo "package-lock.json missing -> using npm install"
+            npm install --no-audit
+          fi
+
+      - name: Validate FIREBASE_SA_JSON format
         env:
           SA_JSON: ${{ secrets.FIREBASE_SA_JSON }}
         run: |
-          echo "$SA_JSON" > serviceAccountKey.json
+          if [ -z "$SA_JSON" ]; then
+            echo "ERROR: FIREBASE_SA_JSON secret not set"
+            exit 1
+          fi
+
+          printf '%s' "$SA_JSON" > /tmp/sa.json
+
+          python3 - <<'EOF'
+import json, sys
+try:
+    json.load(open('/tmp/sa.json'))
+    print("FIREBASE_SA_JSON: valid JSON")
+except Exception as e:
+    print("FIREBASE_SA_JSON: invalid JSON ->", e)
+    sys.exit(1)
+EOF
 
       - name: Run reminder script
         env:
-          DATABASE_URL: ${{ secrets.FIREBASE_DB_URL }}
-          SA_PATH: serviceAccountKey.json
+          FIREBASE_DB_URL: ${{ secrets.FIREBASE_DB_URL }}
+          SA_JSON: ${{ secrets.FIREBASE_SA_JSON }}
+          GOOGLE_APPLICATION_CREDENTIALS: serviceAccountKey.json
         run: |
-          node sendReminders.js
+          # write service account to file (raw JSON or base64)
+          if printf '%s' "$SA_JSON" | head -c1 | grep -q '{'; then
+            printf '%s' "$SA_JSON" > serviceAccountKey.json
+          else
+            echo "$SA_JSON" | base64 --decode > serviceAccountKey.json
+          fi
+
+          ls -la serviceAccountKey.json
+
+          echo "--- Running script ---"
+          node sendReminders.js || {
+            echo "Error: sendReminders.js failed"
