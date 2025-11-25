@@ -11,7 +11,6 @@ permissions:
 jobs:
   send-reminders:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
 
@@ -31,7 +30,7 @@ jobs:
         run: |
           if [ ! -f sendReminders.js ]; then
             echo "ERROR: sendReminders.js not found at repo root."
-            echo "Files at root:"; ls -la
+            ls -la
             exit 1
           fi
           echo "sendReminders.js exists."
@@ -53,18 +52,9 @@ jobs:
             echo "ERROR: FIREBASE_SA_JSON secret not set"
             exit 1
           fi
-
           printf '%s' "$SA_JSON" > /tmp/sa.json
-
-          python3 - <<'EOF'
-import json, sys
-try:
-    json.load(open('/tmp/sa.json'))
-    print("FIREBASE_SA_JSON: valid JSON")
-except Exception as e:
-    print("FIREBASE_SA_JSON: invalid JSON ->", e)
-    sys.exit(1)
-EOF
+          # Validate JSON using single-line Python to avoid heredoc/indentation issues
+          python3 -c "import json,sys; json.load(open('/tmp/sa.json')); print('FIREBASE_SA_JSON: valid JSON')" || { echo "FIREBASE_SA_JSON: invalid JSON"; exit 1; }
 
       - name: Run reminder script
         env:
@@ -84,3 +74,5 @@ EOF
           echo "--- Running script ---"
           node sendReminders.js || {
             echo "Error: sendReminders.js failed"
+            exit 1
+          }
